@@ -14,7 +14,151 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      players: {
+        Row: {
+          clue: string | null
+          created_at: string
+          device_id: string
+          id: string
+          is_host: boolean
+          is_ready: boolean
+          is_spectator: boolean
+          name: string
+          position: number | null
+          room_id: string
+          score: number
+          secret_number: number | null
+          updated_at: string
+        }
+        Insert: {
+          clue?: string | null
+          created_at?: string
+          device_id: string
+          id?: string
+          is_host?: boolean
+          is_ready?: boolean
+          is_spectator?: boolean
+          name: string
+          position?: number | null
+          room_id: string
+          score?: number
+          secret_number?: number | null
+          updated_at?: string
+        }
+        Update: {
+          clue?: string | null
+          created_at?: string
+          device_id?: string
+          id?: string
+          is_host?: boolean
+          is_ready?: boolean
+          is_spectator?: boolean
+          name?: string
+          position?: number | null
+          room_id?: string
+          score?: number
+          secret_number?: number | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "players_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          clue_time: number
+          code: string
+          created_at: string
+          current_round: number
+          current_theme: string | null
+          custom_themes: string[] | null
+          game_mode: string
+          host_id: string
+          id: string
+          max_players: number
+          rounds: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          clue_time?: number
+          code: string
+          created_at?: string
+          current_round?: number
+          current_theme?: string | null
+          custom_themes?: string[] | null
+          game_mode: string
+          host_id: string
+          id?: string
+          max_players?: number
+          rounds?: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          clue_time?: number
+          code?: string
+          created_at?: string
+          current_round?: number
+          current_theme?: string | null
+          custom_themes?: string[] | null
+          game_mode?: string
+          host_id?: string
+          id?: string
+          max_players?: number
+          rounds?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      round_results: {
+        Row: {
+          completion_time: number | null
+          created_at: string
+          id: string
+          mistakes: number
+          room_id: string
+          round_number: number
+          theme: string
+          was_correct: boolean
+        }
+        Insert: {
+          completion_time?: number | null
+          created_at?: string
+          id?: string
+          mistakes?: number
+          room_id: string
+          round_number: number
+          theme: string
+          was_correct: boolean
+        }
+        Update: {
+          completion_time?: number | null
+          created_at?: string
+          id?: string
+          mistakes?: number
+          room_id?: string
+          round_number?: number
+          theme?: string
+          was_correct?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "round_results_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
