@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { generateDeviceId } from "@/lib/gameUtils";
 
 const CreateRoom = () => {
   const { code } = useParams();
@@ -19,6 +21,7 @@ const CreateRoom = () => {
   const [clueTime, setClueTime] = useState("60");
   const [gameMode, setGameMode] = useState("classic");
   const [customThemes, setCustomThemes] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const roomUrl = `${window.location.origin}/lobby/${code}`;
 
@@ -45,25 +48,61 @@ const CreateRoom = () => {
     }
   };
 
-  const handleCreateRoom = () => {
+  const handleCreateRoom = async () => {
     if (!hostName.trim()) {
       toast.error("Digite seu nome!");
       return;
     }
-    // Store room settings and navigate to lobby
-    navigate(`/lobby/${code}`, {
-      state: {
-        isHost: true,
-        hostName,
-        settings: {
-          maxPlayers: parseInt(maxPlayers),
+
+    setLoading(true);
+
+    try {
+      const deviceId = generateDeviceId();
+      const hostId = `host_${Date.now()}`;
+      const themesArray = customThemes
+        .split("\n")
+        .map(t => t.trim())
+        .filter(t => t.length > 0);
+
+      // Create room
+      const { data: room, error: roomError } = await supabase
+        .from('rooms')
+        .insert({
+          code: code!,
+          host_id: hostId,
+          max_players: parseInt(maxPlayers),
           rounds: parseInt(rounds),
-          clueTime: parseInt(clueTime),
-          gameMode,
-          customThemes: customThemes.split("\n").filter(t => t.trim()),
-        }
-      }
-    });
+          clue_time: parseInt(clueTime),
+          game_mode: gameMode,
+          custom_themes: themesArray.length > 0 ? themesArray : null,
+          status: 'lobby'
+        })
+        .select()
+        .single();
+
+      if (roomError) throw roomError;
+
+      // Create host player
+      const { error: playerError } = await supabase
+        .from('players')
+        .insert({
+          room_id: room.id,
+          name: hostName,
+          is_host: true,
+          is_ready: true,
+          device_id: deviceId
+        });
+
+      if (playerError) throw playerError;
+
+      toast.success("Sala criada com sucesso!");
+      navigate(`/lobby/${code}`);
+    } catch (error) {
+      console.error('Error creating room:', error);
+      toast.error("Erro ao criar sala. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -121,6 +160,7 @@ const CreateRoom = () => {
                 value={hostName}
                 onChange={(e) => setHostName(e.target.value)}
                 className="h-12 rounded-xl"
+                maxLength={20}
               />
             </div>
 
@@ -220,8 +260,9 @@ const CreateRoom = () => {
           size="lg"
           className="w-full"
           onClick={handleCreateRoom}
+          disabled={loading}
         >
-          Criar Sala e Entrar
+          {loading ? "Criando..." : "Criar Sala e Entrar"}
         </GameButton>
       </div>
     </div>

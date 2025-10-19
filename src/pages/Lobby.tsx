@@ -1,42 +1,45 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useParams, useLocation } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { GameButton } from "@/components/ui/game-button";
 import { GameCard } from "@/components/ui/game-card";
 import { Input } from "@/components/ui/input";
 import { ArrowLeft, Copy, Check, Crown, User } from "lucide-react";
 import { toast } from "sonner";
-
-interface Player {
-  id: string;
-  name: string;
-  isHost: boolean;
-  isReady: boolean;
-}
+import { useRoom } from "@/hooks/useRoom";
+import { usePlayer } from "@/hooks/usePlayer";
+import { supabase } from "@/integrations/supabase/client";
+import { distributeNumbers } from "@/lib/gameUtils";
+import { getRandomTheme } from "@/lib/gameThemes";
 
 const Lobby = () => {
-  const { code } = useParams();
+  const { code } = useParams<{ code: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const [copied, setCopied] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [joined, setJoined] = useState(false);
-  const [players, setPlayers] = useState<Player[]>([]);
 
-  const isHost = location.state?.isHost || false;
-  const roomSettings = location.state?.settings;
+  const { room, players, loading, error } = useRoom(code!);
+  const { player, deviceId } = usePlayer(room?.id);
 
   useEffect(() => {
-    if (isHost && location.state?.hostName) {
-      setPlayerName(location.state.hostName);
+    if (player) {
       setJoined(true);
-      setPlayers([{
-        id: "host",
-        name: location.state.hostName,
-        isHost: true,
-        isReady: true
-      }]);
+      setPlayerName(player.name);
     }
-  }, [isHost, location.state]);
+  }, [player]);
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error);
+      setTimeout(() => navigate("/"), 2000);
+    }
+  }, [error, navigate]);
+
+  useEffect(() => {
+    if (room?.status !== 'lobby' && room?.status !== undefined) {
+      navigate(`/game/${code}`);
+    }
+  }, [room?.status, code, navigate]);
 
   const roomUrl = `${window.location.origin}/lobby/${code}`;
 
@@ -63,29 +66,94 @@ const Lobby = () => {
     }
   };
 
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!playerName.trim()) {
       toast.error("Digite seu nome!");
       return;
     }
-    setJoined(true);
-    // Simulate adding player
-    setPlayers([...players, {
-      id: Math.random().toString(36),
-      name: playerName,
-      isHost: false,
-      isReady: false
-    }]);
-    toast.success("Você entrou na sala!");
+
+    if (!room) return;
+
+    if (players.length >= room.max_players) {
+      toast.error("Sala cheia!");
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('players')
+        .insert({
+          room_id: room.id,
+          name: playerName,
+          is_host: false,
+          is_ready: false,
+          device_id: deviceId
+        });
+
+      if (error) throw error;
+
+      setJoined(true);
+      toast.success("Você entrou na sala!");
+    } catch (error) {
+      console.error('Error joining room:', error);
+      toast.error("Erro ao entrar na sala");
+    }
   };
 
-  const handleStartGame = () => {
+  const handleStartGame = async () => {
+    if (!room || !player?.is_host) return;
+
     if (players.length < 3) {
       toast.error("Precisa de pelo menos 3 jogadores!");
       return;
     }
-    navigate(`/game/${code}`, { state: { players, settings: roomSettings } });
+
+    try {
+      // Distribute secret numbers
+      const numbers = distributeNumbers(players.length);
+      const updates = players.map((p, index) => ({
+        id: p.id,
+        secret_number: numbers[index],
+        position: index
+      }));
+
+      for (const update of updates) {
+        await supabase
+          .from('players')
+          .update({ secret_number: update.secret_number, position: update.position })
+          .eq('id', update.id);
+      }
+
+      // Select first theme
+      const theme = getRandomTheme([], room.custom_themes || []);
+
+      // Update room status
+      await supabase
+        .from('rooms')
+        .update({
+          status: 'briefing',
+          current_round: 1,
+          current_theme: theme
+        })
+        .eq('id', room.id);
+
+      toast.success("Jogo iniciado!");
+    } catch (error) {
+      console.error('Error starting game:', error);
+      toast.error("Erro ao iniciar o jogo");
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+          <p className="mt-4 text-muted-foreground">Carregando sala...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!joined) {
     return (
@@ -104,6 +172,7 @@ const Lobby = () => {
                 onChange={(e) => setPlayerName(e.target.value)}
                 className="h-14 rounded-2xl text-center text-lg"
                 maxLength={20}
+                onKeyDown={(e) => e.key === 'Enter' && handleJoin()}
               />
               <GameButton
                 variant="primary"
@@ -130,7 +199,6 @@ const Lobby = () => {
   return (
     <div className="min-h-screen p-4 animate-fade-in">
       <div className="max-w-2xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
@@ -142,13 +210,12 @@ const Lobby = () => {
             <div>
               <h1 className="text-2xl font-bold">Sala {code}</h1>
               <p className="text-sm text-muted-foreground">
-                {players.length} {players.length === 1 ? "jogador" : "jogadores"}
+                {players.length} / {room?.max_players} {players.length === 1 ? "jogador" : "jogadores"}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Share Card */}
         <GameCard variant="glass" className="flex items-center justify-between gap-4">
           <div className="flex-1 min-w-0">
             <p className="text-sm text-muted-foreground mb-1">Convide amigos</p>
@@ -174,56 +241,54 @@ const Lobby = () => {
           </div>
         </GameCard>
 
-        {/* Settings Info */}
-        {isHost && roomSettings && (
+        {player?.is_host && room && (
           <GameCard>
             <div className="space-y-2">
               <h3 className="font-semibold mb-3">Configurações da Partida</h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
                 <div className="text-muted-foreground">Jogadores:</div>
-                <div className="font-medium">Até {roomSettings.maxPlayers}</div>
+                <div className="font-medium">Até {room.max_players}</div>
                 
                 <div className="text-muted-foreground">Rodadas:</div>
-                <div className="font-medium">{roomSettings.rounds}</div>
+                <div className="font-medium">{room.rounds}</div>
                 
                 <div className="text-muted-foreground">Tempo de dica:</div>
-                <div className="font-medium">{roomSettings.clueTime}s</div>
+                <div className="font-medium">{room.clue_time}s</div>
                 
                 <div className="text-muted-foreground">Modo:</div>
                 <div className="font-medium capitalize">{
-                  roomSettings.gameMode === "classic" ? "Clássico" :
-                  roomSettings.gameMode === "easy" ? "Coop Fácil" : "Caos"
+                  room.game_mode === "classic" ? "Clássico" :
+                  room.game_mode === "easy" ? "Coop Fácil" : "Caos"
                 }</div>
               </div>
             </div>
           </GameCard>
         )}
 
-        {/* Players List */}
         <GameCard>
           <h3 className="font-semibold mb-4">Jogadores</h3>
           <div className="space-y-2">
-            {players.map((player) => (
+            {players.map((p) => (
               <div
-                key={player.id}
+                key={p.id}
                 className="flex items-center gap-3 p-3 rounded-2xl bg-muted/50 hover:bg-muted transition-smooth"
               >
                 <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                  player.isHost ? "gradient-primary" : "bg-accent"
+                  p.is_host ? "gradient-primary" : "bg-accent"
                 }`}>
-                  {player.isHost ? (
+                  {p.is_host ? (
                     <Crown className="w-6 h-6 text-primary-foreground" />
                   ) : (
                     <User className="w-6 h-6 text-accent-foreground" />
                   )}
                 </div>
                 <div className="flex-1">
-                  <p className="font-medium">{player.name}</p>
+                  <p className="font-medium">{p.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {player.isHost ? "Host" : player.isReady ? "Pronto" : "Esperando..."}
+                    {p.is_host ? "Host" : p.is_ready ? "Pronto" : "Esperando..."}
                   </p>
                 </div>
-                {player.isReady && (
+                {p.is_ready && (
                   <div className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
                 )}
               </div>
@@ -231,8 +296,7 @@ const Lobby = () => {
           </div>
         </GameCard>
 
-        {/* Start Button (Host only) */}
-        {isHost && (
+        {player?.is_host && (
           <GameButton
             variant="primary"
             size="lg"
@@ -244,7 +308,7 @@ const Lobby = () => {
           </GameButton>
         )}
 
-        {!isHost && (
+        {!player?.is_host && (
           <div className="text-center text-sm text-muted-foreground">
             Aguardando o host iniciar a partida...
           </div>

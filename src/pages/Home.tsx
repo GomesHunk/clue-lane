@@ -1,24 +1,57 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GameButton } from "@/components/ui/game-button";
-import { GameCard } from "@/components/ui/game-card";
 import { Input } from "@/components/ui/input";
 import { Sparkles, Users, Lightbulb, Trophy } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { generateRoomCode } from "@/lib/gameUtils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const Home = () => {
   const [roomCode, setRoomCode] = useState("");
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleCreateRoom = () => {
-    // Generate random room code
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const code = generateRoomCode();
     navigate(`/create-room/${code}`);
   };
 
-  const handleJoinRoom = () => {
-    if (roomCode.trim()) {
-      navigate(`/lobby/${roomCode.toUpperCase()}`);
+  const handleJoinRoom = async () => {
+    if (!roomCode.trim() || roomCode.length < 4) {
+      toast.error("Digite um código válido");
+      return;
+    }
+
+    setLoading(true);
+    const code = roomCode.toUpperCase();
+
+    try {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .eq('code', code)
+        .single();
+
+      if (error || !data) {
+        toast.error("Sala não encontrada");
+        setLoading(false);
+        return;
+      }
+
+      if (data.status === 'finished') {
+        toast.error("Esta sala já terminou");
+        setLoading(false);
+        return;
+      }
+
+      navigate(`/lobby/${code}`);
+    } catch (error) {
+      console.error('Error joining room:', error);
+      toast.error("Erro ao entrar na sala");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -66,15 +99,16 @@ const Home = () => {
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
               className="text-center text-lg tracking-widest font-mono h-14 rounded-2xl"
               maxLength={6}
+              onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
             />
             <GameButton
               variant="secondary"
               size="lg"
               className="w-full"
               onClick={handleJoinRoom}
-              disabled={!roomCode.trim()}
+              disabled={!roomCode.trim() || loading}
             >
-              Entrar na Sala
+              {loading ? "Entrando..." : "Entrar na Sala"}
             </GameButton>
           </div>
         </div>
