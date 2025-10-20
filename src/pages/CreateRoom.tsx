@@ -8,8 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Copy, Check } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
 import { generateDeviceId } from "@/lib/gameUtils";
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const CreateRoom = () => {
   const { code } = useParams();
@@ -58,48 +59,44 @@ const CreateRoom = () => {
 
     try {
       const deviceId = generateDeviceId();
-      const hostId = `host_${Date.now()}`;
       const themesArray = customThemes
         .split("\n")
         .map(t => t.trim())
         .filter(t => t.length > 0);
 
       // Create room
-      const { data: room, error: roomError } = await supabase
-        .from('rooms')
-        .insert({
+      const response = await fetch(`${API_URL}/api/rooms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           code: code!,
-          host_id: hostId,
+          host_id: deviceId,
+          host_name: hostName,
           max_players: parseInt(maxPlayers),
           rounds: parseInt(rounds),
           clue_time: parseInt(clueTime),
           game_mode: gameMode,
           custom_themes: themesArray.length > 0 ? themesArray : null,
-          status: 'lobby'
-        })
-        .select()
-        .single();
+          device_id: deviceId,
+        }),
+      });
 
-      if (roomError) throw roomError;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Erro ao criar sala');
+      }
 
-      // Create host player
-      const { error: playerError } = await supabase
-        .from('players')
-        .insert({
-          room_id: room.id,
-          name: hostName,
-          is_host: true,
-          is_ready: true,
-          device_id: deviceId
-        });
-
-      if (playerError) throw playerError;
+      const { room, player } = await response.json();
+      
+      // Store player info in localStorage for later use
+      localStorage.setItem('current_player_id', player.id);
+      localStorage.setItem('device_id', deviceId);
 
       toast.success("Sala criada com sucesso!");
       navigate(`/lobby/${code}`);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating room:', error);
-      toast.error("Erro ao criar sala. Tente novamente.");
+      toast.error(error.message || "Erro ao criar sala. Tente novamente.");
     } finally {
       setLoading(false);
     }

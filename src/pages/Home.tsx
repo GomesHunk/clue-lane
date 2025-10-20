@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Sparkles, Users, Lightbulb, Trophy } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { generateRoomCode } from "@/lib/gameUtils";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 const Home = () => {
   const [roomCode, setRoomCode] = useState("");
@@ -28,19 +29,17 @@ const Home = () => {
     const code = roomCode.toUpperCase();
 
     try {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('code', code)
-        .single();
-
-      if (error || !data) {
+      const response = await fetch(`${API_URL}/api/rooms/${code}`);
+      
+      if (!response.ok) {
         toast.error("Sala não encontrada");
         setLoading(false);
         return;
       }
 
-      if (data.status === 'finished') {
+      const data = await response.json();
+
+      if (data.room.status === 'finished') {
         toast.error("Esta sala já terminou");
         setLoading(false);
         return;

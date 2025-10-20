@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: clue-lane
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: ./
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        scope: build,runtime
+      - key: FRONTEND_URL
+        scope: build,runtime

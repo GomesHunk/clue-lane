@@ -1,9 +1,42 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import type { Database } from '@/integrations/supabase/types';
+import io from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 
-type Room = Database['public']['Tables']['rooms']['Row'];
-type Player = Database['public']['Tables']['players']['Row'];
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+type Room = {
+  id: string;
+  code: string;
+  host_id: string;
+  max_players: number;
+  rounds: number;
+  clue_time: number;
+  game_mode: string;
+  custom_themes?: string[];
+  current_round: number;
+  status: string;
+  current_theme?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+type Player = {
+  id: string;
+  room_id: string;
+  name: string;
+  is_host: boolean;
+  is_ready: boolean;
+  secret_number?: number;
+  clue?: string;
+  position?: number;
+  score: number;
+  is_spectator: boolean;
+  device_id: string;
+  created_at: string;
+  updated_at: string;
+};
+
+let socket: Socket | null = null;
 
 export function useRoom(roomCode: string) {
   const [room, setRoom] = useState<Room | null>(null);
@@ -12,100 +45,68 @@ export function useRoom(roomCode: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let roomChannel: ReturnType<typeof supabase.channel> | null = null;
-    let playersChannel: ReturnType<typeof supabase.channel> | null = null;
-
     async function fetchRoom() {
-      const { data, error } = await supabase
-        .from('rooms')
-        .select('*')
-        .eq('code', roomCode)
-        .single();
-
-      if (error) {
-        setError('Sala não encontrada');
+      try {
+        const response = await fetch(`${API_URL}/api/rooms/${roomCode}`);
+        if (!response.ok) {
+          throw new Error('Sala não encontrada');
+        }
+        const data = await response.json();
+        setRoom(data.room);
+        setPlayers(data.players);
+        setError(null);
+      } catch (err: any) {
+        setError(err.message || 'Erro ao carregar sala');
+      } finally {
         setLoading(false);
-        return;
       }
-
-      setRoom(data);
-    }
-
-    async function fetchPlayers() {
-      if (!room) return;
-
-      const { data, error } = await supabase
-        .from('players')
-        .select('*')
-        .eq('room_id', room.id)
-        .order('created_at', { ascending: true });
-
-      if (error) {
-        console.error('Error fetching players:', error);
-        return;
-      }
-
-      setPlayers(data || []);
-      setLoading(false);
     }
 
     fetchRoom();
 
-    // Subscribe to room changes
-    roomChannel = supabase
-      .channel(`room:${roomCode}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'rooms',
-          filter: `code=eq.${roomCode}`
-        },
-        (payload) => {
-          if (payload.eventType === 'UPDATE') {
-            setRoom(payload.new as Room);
-          } else if (payload.eventType === 'DELETE') {
-            setError('Sala foi encerrada');
-          }
-        }
-      )
-      .subscribe();
+    // Connect to Socket.IO
+    if (!socket) {
+      socket = io(API_URL, {
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        reconnectionAttempts: 5,
+      });
 
-    if (room) {
-      fetchPlayers();
-
-      // Subscribe to players changes
-      playersChannel = supabase
-        .channel(`players:${room.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'players',
-            filter: `room_id=eq.${room.id}`
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setPlayers(prev => [...prev, payload.new as Player]);
-            } else if (payload.eventType === 'UPDATE') {
-              setPlayers(prev =>
-                prev.map(p => (p.id === payload.new.id ? payload.new as Player : p))
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setPlayers(prev => prev.filter(p => p.id !== payload.old.id));
-            }
-          }
-        )
-        .subscribe();
+      socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+      });
     }
 
-    return () => {
-      roomChannel?.unsubscribe();
-      playersChannel?.unsubscribe();
-    };
-  }, [roomCode, room?.id]);
+    // Join room via Socket.IO
+    if (socket?.connected) {
+      socket.emit('room:join', { code: roomCode, player_id: 'temp' });
+    }
 
-  return { room, players, loading, error };
+    // Listen to real-time updates
+    const handlePlayerJoined = () => {
+      fetchRoom(); // Refetch to get updated players
+    };
+
+    const handlePlayerLeft = () => {
+      fetchRoom();
+    };
+
+    const handleRoomUpdated = (data: any) => {
+      setRoom((prev) => (prev ? { ...prev, ...data } : null));
+    };
+
+    socket?.on('room:player-joined', handlePlayerJoined);
+    socket?.on('room:player-left', handlePlayerLeft);
+    socket?.on('room:updated', handleRoomUpdated);
+
+    return () => {
+      socket?.off('room:player-joined', handlePlayerJoined);
+      socket?.off('room:player-left', handlePlayerLeft);
+      socket?.off('room:updated', handleRoomUpdated);
+      socket?.emit('room:leave');
+    };
+  }, [roomCode]);
+
+  return { room, players, loading, error, socket };
 }
