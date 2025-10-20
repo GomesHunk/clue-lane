@@ -1,12 +1,17 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { pool, query } from './db/client.js';
 import { runMigrations } from './db/migrate.js';
 import apiRoutes from './routes/api.js';
 import { setupSockets } from './sockets/handlers.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -33,6 +38,15 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api', apiRoutes);
+
+// Servir arquivos estáticos do frontend
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+
+// SPA fallback - redireciona rotas para index.html
+app.get('*', (req: any, res: any) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
 
 // Socket.IO handlers
 setupSockets(io);
