@@ -9,25 +9,19 @@ COPY server/package.json server/
 # Install root dependencies (for build tools if any)
 RUN npm ci
 
-# Install server dependencies
-WORKDIR /app/server
-RUN npm ci
-
 WORKDIR /app
 
 # Copy all source code
 COPY . .
 
-# Build TypeScript
-WORKDIR /app/server
-RUN npm run build
+# Install server dependencies
+RUN npm --prefix server ci
 
 # Build frontend
-WORKDIR /app
-RUN npm run build
+RUN npm ci && npm run build
 
 # Expose port
 EXPOSE 3000
 
-# Start server
-CMD ["node", "server/dist/index.js"]
+# Start server (serves frontend from /dist)
+CMD ["node", "server/src/server.js"]

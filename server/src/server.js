@@ -3,6 +3,8 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { runMigrations } from './db/migrate.js';
 import roomsRouter from './routes/rooms.js';
 import playersRouter from './routes/players.js';
@@ -31,6 +33,19 @@ app.use('/api/players', playersRouter);
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
+});
+
+// Serve frontend static files (dist) when running in production
+// Resolve __dirname in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.join(__dirname, '../../dist');
+app.use(express.static(distPath));
+
+// SPA fallback: send index.html for any non-API route
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) return next();
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // Socket.IO - Real-time events
